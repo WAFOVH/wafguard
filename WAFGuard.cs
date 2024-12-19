@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("WAFGuard", "WAF.OVH", "1.2.1")]
+    [Info("WAFGuard", "WAF.OVH", "1.3.1")]
     public class WAFGuard : RustPlugin
     {
         #region Configuration
@@ -368,6 +368,49 @@ namespace Oxide.Plugins
                     playerViolations.Remove(targetPlayer.userID);
                     arg.ReplyWith($"Reset violations for player {targetPlayer.displayName}");
                 }
+            }
+        }
+
+        [ChatCommand("wafhelp")]
+        private void ChatHelp(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin) return;
+            
+            ShowHelpMessage(player);
+        }
+
+        [ConsoleCommand("waf.help")]
+        private void ConsoleHelp(ConsoleSystem.Arg arg)
+        {
+            if (!arg.IsAdmin) return;
+            
+            ShowHelpMessage(arg);
+        }
+
+        private void ShowHelpMessage(object output)
+        {
+            string[] messages = {
+                "WAFGuard Commands:",
+                "Chat Commands:",
+                "/wafstatus [player] - Show violation statistics",
+                "/wafhelp - Show this help message",
+                "",
+                "Console Commands:",
+                "waf.status [player] - Show violation statistics",
+                "waf.reset [player] - Reset violations for a player",
+                "waf.help - Show this help message"
+            };
+
+            if (output is BasePlayer)
+            {
+                foreach (var message in messages)
+                {
+                    SendReply(output as BasePlayer, message);
+                }
+            }
+            else if (output is ConsoleSystem.Arg)
+            {
+                (output as ConsoleSystem.Arg).ReplyWith(string.Join("\n", messages));
             }
         }
 
