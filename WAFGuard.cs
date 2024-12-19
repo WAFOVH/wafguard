@@ -20,6 +20,13 @@ namespace Oxide.Plugins
             public bool KickOnViolation = true;
             public int ViolationsBeforeBan = 3;
             public bool LogViolations = true;
+            public float WallhackCheckInterval = 0.5f;
+            public float MaxWallTraceDistance = 100f;
+            public int SuspiciousWallTracesBeforeViolation = 5;
+            public float SuspiciousAimSnapThreshold = 120f;
+            public float AimSnapCheckInterval = 0.1f;
+            public int RequiredSnapDetections = 3;
+            public float WallTraceMemoryDuration = 30f;
         }
 
         protected override void LoadConfig()
@@ -47,6 +54,12 @@ namespace Oxide.Plugins
             public int ViolationCount { get; set; } = 0;
             public DateTime LastViolation { get; set; }
             public List<string> ViolationHistory { get; set; } = new List<string>();
+            public int SuspiciousWallTraces { get; set; } = 0;
+            public DateTime LastWallTraceReset { get; set; } = DateTime.Now;
+            public Vector3 LastAimDirection { get; set; }
+            public float LastAimTime { get; set; }
+            public int AimSnapDetections { get; set; }
+            public Dictionary<BasePlayer, float> WallTraceTargets { get; set; } = new Dictionary<BasePlayer, float>();
         }
         #endregion
 
@@ -86,6 +99,7 @@ namespace Oxide.Plugins
 
             CheckSpeedHack(player);
             CheckFlyHack(player);
+            CheckWallhack(player);
         }
 
         void OnDispenserGather(ResourceDispenser dispenser, BaseEntity entity, Item item)
@@ -132,6 +146,127 @@ namespace Oxide.Plugins
                 return hit.distance;
             }
             return 0f;
+        }
+
+        private void CheckWallhack(BasePlayer player)
+        {
+            if (player.IsAdmin || player.IsSleeping()) return;
+
+            CheckWallTrace(player);
+            CheckAimSnap(player);
+            CheckTargetConsistency(player);
+            CleanupOldTraces(player);
+        }
+
+        private void CheckWallTrace(BasePlayer player)
+        {
+            if (player.IsAdmin || player.IsSleeping()) return;
+
+            if ((DateTime.Now - playerViolations[player.userID].LastWallTraceReset).TotalSeconds > 30)
+            {
+                playerViolations[player.userID].SuspiciousWallTraces = 0;
+                playerViolations[player.userID].LastWallTraceReset = DateTime.Now;
+            }
+
+            RaycastHit hit;
+            Ray ray = new Ray(player.eyes.position, player.eyes.HeadForward());
+            
+            if (Physics.Raycast(ray, out hit, config.MaxWallTraceDistance, LayerMask.GetMask("Player_Server")))
+            {
+                BasePlayer target = hit.GetEntity() as BasePlayer;
+                if (target != null && target != player)
+                {
+                    RaycastHit wallHit;
+                    if (Physics.Raycast(player.eyes.position, (target.transform.position - player.eyes.position).normalized, 
+                        out wallHit, Vector3.Distance(player.eyes.position, target.transform.position), 
+                        LayerMask.GetMask("Construction", "World", "Terrain")))
+                    {
+                        playerViolations[player.userID].SuspiciousWallTraces++;
+                        
+                        if (playerViolations[player.userID].SuspiciousWallTraces >= config.SuspiciousWallTracesBeforeViolation)
+                        {
+                            OnPlayerViolation(player, $"Possible wallhack detected: Tracking players through walls");
+                            playerViolations[player.userID].SuspiciousWallTraces = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void CheckAimSnap(BasePlayer player)
+        {
+            var data = playerViolations[player.userID];
+            float currentTime = Time.realtimeSinceStartup;
+            
+            if (currentTime - data.LastAimTime < config.AimSnapCheckInterval)
+                return;
+
+            Vector3 currentAim = player.eyes.HeadForward();
+            
+            if (data.LastAimDirection != Vector3.zero)
+            {
+                float angleChange = Vector3.Angle(data.LastAimDirection, currentAim);
+                
+                if (angleChange > config.SuspiciousAimSnapThreshold)
+                {
+                    data.AimSnapDetections++;
+                    
+                    if (data.AimSnapDetections >= config.RequiredSnapDetections)
+                    {
+                        OnPlayerViolation(player, $"Possible aimhack detected: Suspicious aim snapping ({angleChange:F1}°)");
+                        data.AimSnapDetections = 0;
+                    }
+                }
+            }
+            
+            data.LastAimDirection = currentAim;
+            data.LastAimTime = currentTime;
+        }
+
+        private void CheckTargetConsistency(BasePlayer player)
+        {
+            var data = playerViolations[player.userID];
+            float currentTime = Time.realtimeSinceStartup;
+            
+            RaycastHit hit;
+            Ray ray = new Ray(player.eyes.position, player.eyes.HeadForward());
+            
+            if (Physics.Raycast(ray, out hit, config.MaxWallTraceDistance, LayerMask.GetMask("Player_Server")))
+            {
+                BasePlayer target = hit.GetEntity() as BasePlayer;
+                if (target != null && target != player)
+                {
+                    if (!data.WallTraceTargets.ContainsKey(target))
+                    {
+                        data.WallTraceTargets[target] = currentTime;
+                    }
+                    else if (currentTime - data.WallTraceTargets[target] > 5f)
+                    {
+                        OnPlayerViolation(player, $"Possible wallhack detected: Consistent tracking through walls");
+                        data.WallTraceTargets.Remove(target);
+                    }
+                }
+            }
+        }
+
+        private void CleanupOldTraces(BasePlayer player)
+        {
+            var data = playerViolations[player.userID];
+            float currentTime = Time.realtimeSinceStartup;
+            
+            List<BasePlayer> playersToRemove = new List<BasePlayer>();
+            foreach (var kvp in data.WallTraceTargets)
+            {
+                if (currentTime - kvp.Value > config.WallTraceMemoryDuration)
+                {
+                    playersToRemove.Add(kvp.Key);
+                }
+            }
+            
+            foreach (var playerToRemove in playersToRemove)
+            {
+                data.WallTraceTargets.Remove(playerToRemove);
+            }
         }
         #endregion
 
