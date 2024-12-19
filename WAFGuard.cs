@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("WAFGuard", "WAF.OVH", "1.3.1")]
+    [Info("WAFGuard", "WAF.OVH", "1.4.1")]
     public class WAFGuard : RustPlugin
     {
         #region Configuration
@@ -474,5 +474,29 @@ namespace Oxide.Plugins
             }
         }
         #endregion
+
+        private object OnPlayerInput(BasePlayer player, InputState input)
+        {
+            if (player == null || input == null) return null;
+
+            if (float.IsNaN(input.current.aimAngles.x) || float.IsNaN(input.current.aimAngles.y) ||
+                float.IsInfinity(input.current.aimAngles.x) || float.IsInfinity(input.current.aimAngles.y))
+            {
+                OnPlayerViolation(player, "Invalid input detected: NaN/Infinity in aim angles");
+                return false;
+            }
+
+            if (((int)input.current.buttons & (int)(BUTTON.FORWARD | BUTTON.BACKWARD | BUTTON.LEFT | BUTTON.RIGHT)) > 0)
+            {
+                Vector3 movement = player.GetNetworkPosition() - player.transform.position;
+                if (movement.magnitude > 1.5f)
+                {
+                    OnPlayerViolation(player, "Invalid input detected: Movement values out of range");
+                    return false;
+                }
+            }
+
+            return null;
+        }
     }
 }
