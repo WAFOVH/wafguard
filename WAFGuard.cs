@@ -12,37 +12,60 @@ namespace Oxide.Plugins
         #region Configuration
         private Configuration config;
         
-        class Configuration
-        {
-            public float MaxSpeedHack = 7.5f;
-            public float MaxFlyHeight = 10f;
-            public int MaxResourceGatherRate = 100;
-            public bool KickOnViolation = true;
-            public int ViolationsBeforeBan = 3;
-            public bool LogViolations = true;
-            public float WallhackCheckInterval = 0.5f;
-            public float MaxWallTraceDistance = 100f;
-            public int SuspiciousWallTracesBeforeViolation = 5;
-            public float SuspiciousAimSnapThreshold = 120f;
-            public float AimSnapCheckInterval = 0.1f;
-            public int RequiredSnapDetections = 3;
-            public float WallTraceMemoryDuration = 30f;
-        }
-
-        protected override void LoadConfig()
-        {
-            config = Config.ReadObject<Configuration>();
-            SaveConfig();
-        }
-
         protected override void LoadDefaultConfig()
         {
-            config = new Configuration();
+            Config.Clear();
+            Config["MaxSpeedHack"] = 7.5f;
+            Config["MaxFlyHeight"] = 10f;
+            Config["MaxResourceGatherRate"] = 100;
+            Config["KickOnViolation"] = true;
+            Config["ViolationsBeforeBan"] = 3;
+            Config["LogViolations"] = true;
+            Config["WallhackCheckInterval"] = 0.5f;
+            Config["MaxWallTraceDistance"] = 100f;
+            Config["SuspiciousWallTracesBeforeViolation"] = 5;
+            Config["SuspiciousAimSnapThreshold"] = 120f;
+            Config["AimSnapCheckInterval"] = 0.1f;
+            Config["RequiredSnapDetections"] = 3;
+            Config["WallTraceMemoryDuration"] = 30f;
         }
 
-        protected override void SaveConfig()
+        void Init()
         {
-            Config.WriteObject(config);
+            LoadConfig();
+            config = new Configuration
+            {
+                MaxSpeedHack = Config.Get<float>("MaxSpeedHack"),
+                MaxFlyHeight = Config.Get<float>("MaxFlyHeight"),
+                MaxResourceGatherRate = Config.Get<int>("MaxResourceGatherRate"),
+                KickOnViolation = Config.Get<bool>("KickOnViolation"),
+                ViolationsBeforeBan = Config.Get<int>("ViolationsBeforeBan"),
+                LogViolations = Config.Get<bool>("LogViolations"),
+                WallhackCheckInterval = Config.Get<float>("WallhackCheckInterval"),
+                MaxWallTraceDistance = Config.Get<float>("MaxWallTraceDistance"),
+                SuspiciousWallTracesBeforeViolation = Config.Get<int>("SuspiciousWallTracesBeforeViolation"),
+                SuspiciousAimSnapThreshold = Config.Get<float>("SuspiciousAimSnapThreshold"),
+                AimSnapCheckInterval = Config.Get<float>("AimSnapCheckInterval"),
+                RequiredSnapDetections = Config.Get<int>("RequiredSnapDetections"),
+                WallTraceMemoryDuration = Config.Get<float>("WallTraceMemoryDuration")
+            };
+        }
+
+        public class Configuration
+        {
+            public float MaxSpeedHack { get; set; }
+            public float MaxFlyHeight { get; set; }
+            public int MaxResourceGatherRate { get; set; }
+            public bool KickOnViolation { get; set; }
+            public int ViolationsBeforeBan { get; set; }
+            public bool LogViolations { get; set; }
+            public float WallhackCheckInterval { get; set; }
+            public float MaxWallTraceDistance { get; set; }
+            public int SuspiciousWallTracesBeforeViolation { get; set; }
+            public float SuspiciousAimSnapThreshold { get; set; }
+            public float AimSnapCheckInterval { get; set; }
+            public int RequiredSnapDetections { get; set; }
+            public float WallTraceMemoryDuration { get; set; }
         }
         #endregion
 
@@ -97,6 +120,11 @@ namespace Oxide.Plugins
         {
             if (player == null || !player.IsConnected) return;
 
+            if (!playerViolations.ContainsKey(player.userID))
+            {
+                playerViolations[player.userID] = new PlayerViolationData();
+            }
+
             CheckSpeedHack(player);
             CheckFlyHack(player);
             CheckWallhack(player);
@@ -119,7 +147,7 @@ namespace Oxide.Plugins
         #region Check Methods
         private void CheckSpeedHack(BasePlayer player)
         {
-            float currentSpeed = player.GetMoveSpeed();
+            float currentSpeed = player.GetNetworkPosition().magnitude;
             if (currentSpeed > config.MaxSpeedHack && !player.IsAdmin)
             {
                 OnPlayerViolation(player, $"Speed hack detected: {currentSpeed:F2}");
@@ -151,6 +179,11 @@ namespace Oxide.Plugins
         private void CheckWallhack(BasePlayer player)
         {
             if (player.IsAdmin || player.IsSleeping()) return;
+
+            if (!playerViolations.ContainsKey(player.userID))
+            {
+                playerViolations[player.userID] = new PlayerViolationData();
+            }
 
             CheckWallTrace(player);
             CheckAimSnap(player);
@@ -278,7 +311,7 @@ namespace Oxide.Plugins
 
         private void BanPlayer(BasePlayer player)
         {
-            Server.Ban(player.UserIDString, "WAFGuard: Multiple Violations Detected");
+            player.IPlayer.Ban("WAFGuard: Multiple Violations Detected");
         }
         #endregion
 
