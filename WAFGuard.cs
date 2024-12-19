@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("WAFGuard", "WAF.OVH", "1.1.1")]
+    [Info("WAFGuard", "WAF.OVH", "1.2.1")]
     public class WAFGuard : RustPlugin
     {
         #region Configuration
@@ -326,7 +326,7 @@ namespace Oxide.Plugins
                 BasePlayer targetPlayer = BasePlayer.Find(args[0]);
                 if (targetPlayer != null)
                 {
-                    ShowPlayerViolations(player, targetPlayer);
+                    ShowPlayerViolations(targetPlayer, player);
                 }
             }
             else
@@ -335,35 +335,100 @@ namespace Oxide.Plugins
             }
         }
 
-        private void ShowPlayerViolations(BasePlayer admin, BasePlayer target)
+        [ConsoleCommand("waf.status")]
+        private void ConsoleCheckStatus(ConsoleSystem.Arg arg)
+        {
+            if (arg.IsAdmin)
+            {
+                if (arg.Args?.Length > 0)
+                {
+                    BasePlayer targetPlayer = BasePlayer.Find(arg.Args[0]);
+                    if (targetPlayer != null)
+                    {
+                        ShowPlayerViolations(targetPlayer, arg);
+                    }
+                }
+                else
+                {
+                    ShowOverallStats(arg);
+                }
+            }
+        }
+
+        [ConsoleCommand("waf.reset")]
+        private void ResetPlayerViolations(ConsoleSystem.Arg arg)
+        {
+            if (!arg.IsAdmin) return;
+            
+            if (arg.Args?.Length > 0)
+            {
+                BasePlayer targetPlayer = BasePlayer.Find(arg.Args[0]);
+                if (targetPlayer != null)
+                {
+                    playerViolations.Remove(targetPlayer.userID);
+                    arg.ReplyWith($"Reset violations for player {targetPlayer.displayName}");
+                }
+            }
+        }
+
+        private void ShowPlayerViolations(BasePlayer target, object output)
         {
             if (playerViolations.ContainsKey(target.userID))
             {
                 var data = playerViolations[target.userID];
-                SendReply(admin, $"WAFGuard Violations for {target.displayName}:");
-                SendReply(admin, $"Total violations: {data.ViolationCount}");
-                SendReply(admin, $"Last violation: {data.LastViolation}");
+                string[] messages = {
+                    $"WAFGuard Violations for {target.displayName}:",
+                    $"Total violations: {data.ViolationCount}",
+                    $"Last violation: {data.LastViolation}"
+                };
+
+                foreach (var message in messages)
+                {
+                    if (output is BasePlayer)
+                        SendReply(output as BasePlayer, message);
+                    else if (output is ConsoleSystem.Arg)
+                        (output as ConsoleSystem.Arg).ReplyWith(message);
+                }
+
                 foreach (var violation in data.ViolationHistory)
                 {
-                    SendReply(admin, violation);
+                    if (output is BasePlayer)
+                        SendReply(output as BasePlayer, violation);
+                    else if (output is ConsoleSystem.Arg)
+                        (output as ConsoleSystem.Arg).ReplyWith(violation);
                 }
             }
             else
             {
-                SendReply(admin, $"No violations recorded for {target.displayName}");
+                string message = $"No violations recorded for {target.displayName}";
+                if (output is BasePlayer)
+                    SendReply(output as BasePlayer, message);
+                else if (output is ConsoleSystem.Arg)
+                    (output as ConsoleSystem.Arg).ReplyWith(message);
             }
         }
 
-        private void ShowOverallStats(BasePlayer admin)
+        private void ShowOverallStats(object output)
         {
-            SendReply(admin, "WAFGuard Statistics:");
-            SendReply(admin, $"Total players monitored: {playerViolations.Count}");
             int totalViolations = 0;
             foreach (var data in playerViolations.Values)
             {
                 totalViolations += data.ViolationCount;
             }
-            SendReply(admin, $"Total violations detected: {totalViolations}");
+
+            string[] messages = {
+                "WAFGuard Statistics:",
+                $"Total players monitored: {playerViolations.Count}",
+                $"Total violations detected: {totalViolations}"
+            };
+
+            foreach (var message in messages)
+            {
+                if (output is BasePlayer)
+                    SendReply(output as BasePlayer, message);
+                else if (output is ConsoleSystem.Arg)
+                    (output as ConsoleSystem.Arg).ReplyWith(message);
+            }
         }
         #endregion
     }
