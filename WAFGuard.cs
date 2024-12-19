@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("WAFGuard", "WAF.OVH", "1.0.0")]
+    [Info("WAFGuard", "WAF.OVH", "1.1.0")]
     public class WAFGuard : RustPlugin
     {
         #region Configuration
