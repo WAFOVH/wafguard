@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("WAFGuard", "WAF.OVH", "1.4.1")]
+    [Info("WAFGuard", "WAF.OVH", "1.5.1")]
     public class WAFGuard : RustPlugin
     {
         #region Configuration
@@ -496,6 +496,93 @@ namespace Oxide.Plugins
                 }
             }
 
+            return null;
+        }
+
+        #region Combat Checks
+        private void CheckProjectileHack(BasePlayer attacker, HitInfo info, Vector3 startPos)
+        {
+            if (info?.HitEntity == null || !(info.HitEntity is BasePlayer)) return;
+            BasePlayer victim = info.HitEntity as BasePlayer;
+
+            BasePlayer.FiredProjectile firedProjectile;
+            if (!attacker.firedProjectiles.TryGetValue(info.ProjectileID, out firedProjectile)) return;
+
+            float desyncTime = attacker.desyncTimeClamped;
+            float clientFrames = 2f / 60f;
+            float serverFrames = 2f * Mathx.Max(Time.deltaTime, Time.smoothDeltaTime, Time.fixedDeltaTime);
+            float forgiveness = 1.5f;
+            float maxTime = (desyncTime + clientFrames + serverFrames) * forgiveness;
+
+            var originShoot = attacker.FindBone("head").position;
+            var eyeDist = Vector3.Distance(originShoot, startPos);
+            var maxEyeDist = config.WallTraceMemoryDuration + 3f + (maxTime * 0.1f);
+
+            if (eyeDist > maxEyeDist && !attacker.GetMounted())
+            {
+                OnPlayerViolation(attacker, $"Projectile desync detected: {eyeDist:F2}m > {maxEyeDist:F2}m");
+                return;
+            }
+
+            if (victim != null)
+            {
+                var nextProjPos = startPos + info.ProjectileVelocity * 0.005f;
+                var realDirection = startPos + attacker.eyes.BodyForward() * (info.ProjectileVelocity * 0.005f).magnitude;
+                var pointDist = Vector3.Distance(realDirection, nextProjPos);
+                var maxAngle = config.WallTraceMemoryDuration + maxTime * 0.1f;
+
+                if (pointDist > maxAngle)
+                {
+                    OnPlayerViolation(attacker, $"Invalid projectile angle: {pointDist:F2}m > {maxAngle:F2}m");
+                    return;
+                }
+            }
+        }
+
+        private void CheckMeleeHack(BasePlayer attacker, HitInfo info)
+        {
+            if (info?.HitEntity == null || !(info.HitEntity is BasePlayer)) return;
+            BasePlayer victim = info.HitEntity as BasePlayer;
+
+            var startPos = attacker.eyes.position;
+            var weapon = info.WeaponPrefab as BaseMelee;
+            if (weapon == null) return;
+
+            var maxDistance = weapon.maxDistance + weapon.attackRadius;
+            var hitPos = info.HitPositionWorld;
+            var originDist = Vector3.Distance(startPos, hitPos);
+            
+            float desyncTime = attacker.desyncTimeClamped;
+            float clientFrames = ConVar.AntiHack.melee_clientframes / 60f;
+            float serverFrames = ConVar.AntiHack.melee_serverframes * Mathx.Max(Time.deltaTime, Time.smoothDeltaTime, Time.fixedDeltaTime);
+            float maxTime = (desyncTime + clientFrames + serverFrames) * 1.5f;
+            
+            var maxOriginDist = config.WallTraceMemoryDuration + 1.2f + maxTime * 0.5f;
+            var nearFlag = originDist <= maxOriginDist;
+            var realDirection = startPos + attacker.eyes.BodyForward() * (nearFlag ? maxDistance - 1f : maxDistance);
+            var pointDist = Vector3.Distance(realDirection, hitPos);
+            var maxAngle = config.WallTraceMemoryDuration + (victim.IsCrawling() || victim.IsSleeping() || victim.IsWounded() ? 1f : 0f) 
+                + (maxDistance < 1.5f ? maxDistance : maxDistance - clientFrames + 0.2f) + maxTime * 0.5f;
+
+            if (pointDist > maxAngle)
+            {
+                OnPlayerViolation(attacker, $"Invalid melee attack angle: {pointDist:F2}m > {maxAngle:F2}m");
+            }
+        }
+        #endregion
+
+        private object OnPlayerAttack(BasePlayer attacker, HitInfo info)
+        {
+            if (info?.Weapon is BaseProjectile)
+            {
+                CheckProjectileHack(attacker, info, attacker.eyes.position);
+            }
+            return null;
+        }
+
+        private object OnMeleeAttack(BasePlayer attacker, HitInfo info)
+        {
+            CheckMeleeHack(attacker, info);
             return null;
         }
     }
